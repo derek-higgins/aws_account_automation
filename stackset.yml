@@ -1,0 +1,37 @@
+Transform: AWS::Serverless-2016-10-31
+Parameters:
+  AccountID:
+    Type: String
+    Description: The AWS account ID that will assume the role
+Resources:
+  AccountAutomationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: AccountAutomationRole
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub arn:aws:iam::${AccountID}:root
+            Action: sts:AssumeRole
+  AccountAutomationPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: AccountAutomationPolicy
+      Roles:
+        - !Ref AccountAutomationRole
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:PutPublicAccessBlock
+              - ec2:DeleteVpc
+              - ec2:Describe*
+              - ec2:List*
+              - ec2:DeleteSubnet
+              - ec2:DeleteSecurityGroup
+              - ec2:DetachInternetGateway
+              - ec2:EnableSnapshotBlockPublicAccess
+              - ec2:EnableImageBlockPublicAccess
+              - ec2:EnableEbsEncryptionByDefault
+            Resource: '*'

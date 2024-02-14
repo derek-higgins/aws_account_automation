@@ -1,0 +1,257 @@
+Transform: AWS::Serverless-2016-10-31
+Resources:
+  s3PublicBlock:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description:
+        Fn::Sub:
+        - Stack ${AWS::StackName} Function ${ResourceName}
+        - ResourceName: s3PublicBlock
+      CodeUri: s3PublicBlock
+      Handler: handler.handler
+      Runtime: python3.11
+      MemorySize: 3008
+      Timeout: 30
+      Tracing: Active
+      Policies:
+      - AWSLambdaBasicExecutionRole
+      - Statement:
+        - Effect: Allow
+          Action:
+          - sts:assumeRole
+          Resource: '*'
+    Metadata:
+      SamResourceId: s3PublicBlock
+  s3PublicBlockLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    Properties:
+      LogGroupName:
+        Fn::Sub: /aws/lambda/${s3PublicBlock}
+  Ec2Protections:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description:
+        Fn::Sub:
+        - Stack ${AWS::StackName} Function ${ResourceName}
+        - ResourceName: Ec2Protections
+      CodeUri: Ec2Protections
+      Handler: handler.handler
+      Runtime: python3.11
+      MemorySize: 3008
+      Timeout: 30
+      Tracing: Active
+      Policies:
+      - AWSLambdaBasicExecutionRole
+      - Statement:
+        - Effect: Allow
+          Action:
+          - sts:assumeRole
+          Resource: '*'
+    Metadata:
+      SamResourceId: Ec2Protections
+  Ec2ProtectionsLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    Properties:
+      LogGroupName:
+        Fn::Sub: /aws/lambda/${Ec2Protections}
+  removeDefaulVPC:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description:
+        Fn::Sub:
+        - Stack ${AWS::StackName} Function ${ResourceName}
+        - ResourceName: removeDefaulVPC
+      CodeUri: removeDefaulVPC
+      Handler: handler.handler
+      Runtime: python3.11
+      MemorySize: 3008
+      Timeout: 30
+      Tracing: Active
+      Policies:
+      - AWSLambdaBasicExecutionRole
+      - Statement:
+        - Effect: Allow
+          Action:
+          - sts:assumeRole
+          Resource: '*'
+    Metadata:
+      SamResourceId: removeDefaulVPC
+  removeDefaulVPCLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    Properties:
+      LogGroupName:
+        Fn::Sub: /aws/lambda/${removeDefaulVPC}
+  AccountAutomationSM:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Definition:
+        StartAt: NewAccountControls
+        States:
+          NewAccountControls:
+            Type: Parallel
+            Branches:
+            - StartAt: enable S3 public block
+              States:
+                enable S3 public block:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  OutputPath: $.Payload
+                  Parameters:
+                    Payload.$: $
+                    FunctionName: ${enableS3PublicBlock}
+                  Retry:
+                  - ErrorEquals:
+                    - Lambda.ServiceException
+                    - Lambda.AWSLambdaException
+                    - Lambda.SdkClientException
+                    - Lambda.TooManyRequestsException
+                    IntervalSeconds: 1
+                    MaxAttempts: 3
+                    BackoffRate: 2
+                  End: true
+            - StartAt: enable ec2 protections
+              States:
+                enable ec2 protections:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  Parameters:
+                    Payload.$: $
+                    FunctionName: ${EnalbeEc2Protections}
+                  End: true
+            - StartAt: remove default vpc
+              States:
+                remove default vpc:
+                  Type: Task
+                  Resource: arn:aws:states:::lambda:invoke
+                  OutputPath: $.Payload
+                  Parameters:
+                    Payload.$: $
+                    FunctionName: ${removeDefaultVPC}
+                  Retry:
+                  - ErrorEquals:
+                    - Lambda.ServiceException
+                    - Lambda.AWSLambdaException
+                    - Lambda.SdkClientException
+                    - Lambda.TooManyRequestsException
+                    IntervalSeconds: 1
+                    MaxAttempts: 3
+                    BackoffRate: 2
+                  End: true
+            Next: Success
+            InputPath: $.serviceEventDetails.createAccountStatus
+          Success:
+            Type: Succeed
+      Logging:
+        Level: ALL
+        IncludeExecutionData: true
+        Destinations:
+        - CloudWatchLogsLogGroup:
+            LogGroupArn:
+              Fn::GetAtt:
+              - AccountAutomationSMLogGroup
+              - Arn
+      Policies:
+      - AWSXrayWriteOnlyAccess
+      - Statement:
+        - Effect: Allow
+          Action:
+          - logs:CreateLogDelivery
+          - logs:GetLogDelivery
+          - logs:UpdateLogDelivery
+          - logs:DeleteLogDelivery
+          - logs:ListLogDeliveries
+          - logs:PutResourcePolicy
+          - logs:DescribeResourcePolicies
+          - logs:DescribeLogGroups
+          Resource: '*'
+      - LambdaInvokePolicy:
+          FunctionName:
+            Ref: s3PublicBlock
+      - LambdaInvokePolicy:
+          FunctionName:
+            Ref: Ec2Protections
+      - LambdaInvokePolicy:
+          FunctionName:
+            Ref: removeDefaulVPC
+      Tracing:
+        Enabled: true
+      Type: STANDARD
+      DefinitionSubstitutions:
+        LambdaFunction1:
+          Ref: AWS::NoValue
+        enableS3PublicBlock:
+          Fn::GetAtt:
+          - s3PublicBlock
+          - Arn
+        EnalbeEc2Protections:
+          Fn::GetAtt:
+          - Ec2Protections
+          - Arn
+        removeDefaultVPC:
+          Fn::GetAtt:
+          - removeDefaulVPC
+          - Arn
+  AccountAutomationSMLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Sub:
+        - /aws/vendedlogs/states/${AWS::StackName}-${ResourceId}-Logs
+        - ResourceId: AccountAutomationSM
+  AccountCreationRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventPattern:
+        source:
+        - organizations.amazonaws.com
+        eventName:
+        - CreateAccountResult
+        detail:
+          serviceEventDetails:
+            createAccountStatus:
+              state:
+              - SUCCEEDED
+      Targets:
+      - Id:
+          Fn::GetAtt:
+          - AccountAutomationSM
+          - Name
+        Arn:
+          Ref: AccountAutomationSM
+        RoleArn:
+          Fn::GetAtt:
+          - AccountCreationRuleToAccountAutomationSMRole
+          - Arn
+  AccountCreationRuleToAccountAutomationSMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          Effect: Allow
+          Principal:
+            Service:
+              Fn::Sub: events.${AWS::URLSuffix}
+          Action: sts:AssumeRole
+          Condition:
+            ArnLike:
+              aws:SourceArn:
+                Fn::Sub:
+                - arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/${AWS::StackName}-${ResourceId}-*
+                - ResourceId: AccountCreationRule
+  AccountCreationRuleToAccountAutomationSMConnector:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      PolicyDocument:
+        Statement:
+        - Effect: Allow
+          Action:
+          - states:StartExecution
+          Resource:
+          - Ref: AccountAutomationSM
+        Version: '2012-10-17'
+      Roles:
+      - Ref: AccountCreationRuleToAccountAutomationSMRole
