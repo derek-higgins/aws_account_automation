@@ -34,7 +34,7 @@ Resources:
       Handler: handler.handler
       Runtime: python3.11
       MemorySize: 3008
-      Timeout: 30
+      Timeout: 900
       Tracing: Active
       Policies:
         - AWSLambdaBasicExecutionRole
@@ -58,7 +58,7 @@ Resources:
       Handler: handler.handler
       Runtime: python3.11
       MemorySize: 3008
-      Timeout: 30
+      Timeout: 900
       Tracing: Active
       Policies:
         - AWSLambdaBasicExecutionRole
@@ -76,8 +76,22 @@ Resources:
     Type: AWS::Serverless::StateMachine
     Properties:
       Definition:
-        StartAt: NewAccountControls
+        StartAt: validateRoleDeployment
         States:
+          validateRoleDeployment:
+            Type: Task
+            Resource: arn:aws:states:::lambda:invoke
+            OutputPath: $.Payload
+            Parameters:
+              Payload.$: $
+              FunctionName: ${roleValidator}
+            Retry:
+              - ErrorEquals:
+                  - States.ALL
+                MaxAttempts: 10
+                BackoffRate: 2
+                IntervalSeconds: 30
+            Next: NewAccountControls
           NewAccountControls:
             Type: Parallel
             Branches:
@@ -158,6 +172,8 @@ Resources:
             FunctionName: !Ref Ec2Protections
         - LambdaInvokePolicy:
             FunctionName: !Ref removeDefaulVPC
+        - LambdaInvokePolicy:
+            FunctionName: !Ref RoleValidator
       Tracing:
         Enabled: true
       Type: STANDARD
@@ -166,6 +182,7 @@ Resources:
         enableS3PublicBlock: !GetAtt s3PublicBlock.Arn
         EnalbeEc2Protections: !GetAtt Ec2Protections.Arn
         removeDefaultVPC: !GetAtt removeDefaulVPC.Arn
+        roleValidator: !GetAtt RoleValidator.Arn
   AccountAutomationSMLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -217,3 +234,27 @@ Resources:
         Version: '2012-10-17'
       Roles:
         - !Ref AccountCreationRuleToAccountAutomationSMRole
+  RoleValidator:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: !Sub
+        - Stack ${AWS::StackName} Function ${ResourceName}
+        - ResourceName: RoleValidator
+      CodeUri: src/Function
+      Handler: handler.handler
+      Runtime: python3.11
+      MemorySize: 3008
+      Timeout: 30
+      Tracing: Active
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Statement:
+            - Effect: Allow
+              Action:
+                - sts:assumeRole
+              Resource: '*'
+  RoleValidatorLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${RoleValidator}

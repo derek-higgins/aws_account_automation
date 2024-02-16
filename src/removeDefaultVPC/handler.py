@@ -2,7 +2,16 @@ import json
 import boto3
 
 CHILD_ROLE="AccountAutomationRole"
-def assume_role(account_id, role_name,service):
+
+def get_regions():
+    """
+    Returns a list of AWS regions.
+    """
+    client = boto3.client('ec2')
+    regions = [region['RegionName'] for region in client.describe_regions()['Regions']]
+    return regions
+
+def assume_role(account_id, role_name,service, region="us-east-1"):
     sts_client =boto3.client('sts')
     
     role_arn = f'arn:aws:iam::{account_id}:role/{role_name}'
@@ -17,12 +26,13 @@ def assume_role(account_id, role_name,service):
         service,
         aws_access_key_id=assumed_credentials['AccessKeyId'],
         aws_secret_access_key=assumed_credentials['SecretAccessKey'],
-        aws_session_token=assumed_credentials['SessionToken']
+        aws_session_token=assumed_credentials['SessionToken'],
+        region_name=region
     )
     return client
 
-def remove_default_vpc(account_id):
-    ec2 = assume_role(account_id=account_id,role_name=CHILD_ROLE,service='ec2')
+def remove_default_vpc(account_id,region):
+    ec2 = assume_role(account_id=account_id,role_name=CHILD_ROLE,service='ec2',region=region)
 
     # Get information about all VPCs
     response = ec2.describe_vpcs()
@@ -71,8 +81,7 @@ def remove_default_vpc(account_id):
         print("Default VPC and associated resources removed successfully.")
 
 def handler(event, context):
-    # Log the event argument for debugging and for use in local development.
-    print(json.dumps(event))
-    remove_default_vpc(event['accountId'])
+    for region in get_regions():
+        remove_default_vpc(event['accountId'],region)
 
     return {}
