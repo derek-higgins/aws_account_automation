@@ -1,5 +1,8 @@
 # AWS account automations
 step function triggered on successful account creation, to implement defaults that cannot be controlled through stacksets
+
+![Architecture](/docs/stepfunctions_graph.png)
+
 ## Controls and defaults set for new accounts
 - remove default VPC
 - enable S3 public access block for the account
